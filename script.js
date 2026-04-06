@@ -10,6 +10,7 @@ const overlaySubtitle = document.getElementById("overlay-subtitle");
 const overlayHint = document.getElementById("overlay-hint");
 const audioStatusEl = document.getElementById("audio-status");
 const audioBtn = document.getElementById("audio-btn");
+const gameWrap = document.querySelector(".game-wrap");
 
 const TILE = 20;
 const OPEN_ROW = ".".repeat(21);
@@ -64,6 +65,9 @@ const chompFallbackPool = Array.from({ length: CHOMP_POOL_SIZE }, () => {
   audio.playsInline = true;
   return audio;
 });
+
+const isTouchDevice =
+  "ontouchstart" in window || navigator.maxTouchPoints > 0;
 
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -361,24 +365,24 @@ function setMode(mode) {
   if (mode === "over") {
     overlayTitle.textContent = "YOU LOST";
     overlaySubtitle.textContent = "Game Over";
-    overlayHint.textContent = "Press Space to Restart";
+    overlayHint.textContent = isTouchDevice ? "Tap to Restart" : "Press Space to Restart";
   } else if (mode === "win") {
     overlayTitle.textContent = "YOU WIN";
     overlaySubtitle.textContent =
       state.winReason === "ghosts" ? "All ghosts eliminated" : "All pellets cleared";
-    overlayHint.textContent = "Press Space to Restart";
+    overlayHint.textContent = isTouchDevice ? "Tap to Restart" : "Press Space to Restart";
   } else if (mode === "ready") {
     overlayTitle.textContent = "PAC-MAN";
-    overlaySubtitle.textContent = "Press Space to Start";
-    overlayHint.textContent = "Arrow keys to move";
+    overlaySubtitle.textContent = isTouchDevice ? "Tap to Start" : "Press Space to Start";
+    overlayHint.textContent = isTouchDevice ? "Swipe to move" : "Arrow keys to move";
   } else if (mode === "paused") {
     overlayTitle.textContent = "You Died";
-    overlaySubtitle.textContent = "Press Space to Continue";
-    overlayHint.textContent = "Get ready for a countdown";
+    overlaySubtitle.textContent = isTouchDevice ? "Tap to Continue" : "Press Space to Continue";
+    overlayHint.textContent = isTouchDevice ? "Swipe to move" : "Get ready for a countdown";
   } else if (mode === "countdown") {
     overlayTitle.textContent = "Get Ready";
     overlaySubtitle.textContent = "Starting in 3";
-    overlayHint.textContent = "Arrow keys to move";
+    overlayHint.textContent = isTouchDevice ? "Swipe to move" : "Arrow keys to move";
   }
 }
 
@@ -636,10 +640,61 @@ function handleKey(e) {
   if (e.key === "ArrowDown") pacman.nextDir = DIRS.down;
 }
 
+function handleStartAction() {
+  unlockAudio();
+  if (state.mode === "playing" || state.mode === "countdown") return;
+  startGame();
+}
+
+let touchStart = null;
+
+function onTouchStart(e) {
+  if (!e.touches || e.touches.length === 0) return;
+  const touch = e.touches[0];
+  touchStart = { x: touch.clientX, y: touch.clientY };
+}
+
+function onTouchEnd(e) {
+  if (!touchStart || !e.changedTouches || e.changedTouches.length === 0) return;
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+  const threshold = 20;
+
+  if (absX < threshold && absY < threshold) {
+    handleStartAction();
+  } else if (absX > absY) {
+    pacman.nextDir = dx > 0 ? DIRS.right : DIRS.left;
+  } else {
+    pacman.nextDir = dy > 0 ? DIRS.down : DIRS.up;
+  }
+
+  touchStart = null;
+}
+
 document.addEventListener("keydown", handleKey);
 document.addEventListener("pointerdown", unlockAudio, { once: true });
 document.addEventListener("touchstart", unlockAudio, { once: true });
-audioBtn.addEventListener("click", unlockAudio);
+audioBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  unlockAudio();
+});
+if (gameWrap) {
+  gameWrap.addEventListener("click", () => {
+    if (isTouchDevice) handleStartAction();
+  });
+  gameWrap.addEventListener("touchstart", onTouchStart, { passive: false });
+  gameWrap.addEventListener("touchend", onTouchEnd, { passive: false });
+  gameWrap.addEventListener(
+    "touchmove",
+    (e) => {
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+}
 
 parseMap();
 resetEntities();
