@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pac-Man</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="hud">
+      <div>Score: <span id="score">0</span></div>
+      <div>Lives: <span id="lives">3</span></div>
+      <div>State: <span id="state">Ready</span></div>
+    </div>
+
+    <div class="game-wrap">
+      <canvas id="game" width="420" height="460"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="title" id="overlay-title">PAC-MAN</div>
+        <div class="subtitle" id="overlay-subtitle">Press Space to Start</div>
+        <div class="hint" id="overlay-hint">Arrow keys to move</div>
+      </div>
+      <div id="audio-status" class="audio-status">Sound: waiting for click</div>
+      <button id="audio-btn" class="audio-btn" type="button">Enable Sound</button>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
