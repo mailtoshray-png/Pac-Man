@@ -21,6 +21,7 @@ body {
   background: radial-gradient(circle at 20% 20%, #151c34, var(--bg));
   color: var(--text);
   font-family: "Trebuchet MS", "Verdana", sans-serif;
+  touch-action: none;
 }
 
 .hud {

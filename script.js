@@ -10,7 +10,6 @@ const overlaySubtitle = document.getElementById("overlay-subtitle");
 const overlayHint = document.getElementById("overlay-hint");
 const audioStatusEl = document.getElementById("audio-status");
 const audioBtn = document.getElementById("audio-btn");
-const gameWrap = document.querySelector(".game-wrap");
 
 const TILE = 20;
 const OPEN_ROW = ".".repeat(21);
@@ -68,6 +67,20 @@ const chompFallbackPool = Array.from({ length: CHOMP_POOL_SIZE }, () => {
 
 const isTouchDevice =
   "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
+const SCATTER_TARGETS = [
+  { r: 1, c: 1 },
+  { r: 1, c: COLS - 2 },
+  { r: ROWS - 2, c: COLS - 2 },
+  { r: ROWS - 2, c: 1 },
+];
+
+const GHOST_MODE_SEQUENCE = [
+  { mode: "scatter", duration: 7 },
+  { mode: "chase", duration: 20 },
+  { mode: "scatter", duration: 7 },
+  { mode: "chase", duration: 20 },
+];
 
 function unlockAudio() {
   if (audioUnlocked) return;
@@ -194,6 +207,9 @@ const state = {
   countdown: 0,
   pelletShield: 0,
   winReason: "pellets",
+  ghostModeIndex: 0,
+  ghostModeTime: 0,
+  ghostMode: "scatter",
 };
 
 const startPositions = {
@@ -241,6 +257,16 @@ function tileCenter(r, c) {
     x: (c + 0.5) * TILE,
     y: (r + 0.5) * TILE,
   };
+}
+
+function wrapTile(r, c) {
+  let nr = r;
+  let nc = c;
+  if (nr < 0) nr = ROWS - 1;
+  if (nr >= ROWS) nr = 0;
+  if (nc < 0) nc = COLS - 1;
+  if (nc >= COLS) nc = 0;
+  return { r: nr, c: nc };
 }
 
 function getTileFromPos(x, y) {
@@ -350,7 +376,7 @@ function resetEntities() {
       y: center.y,
       home: { x: center.x, y: center.y },
       dir: idx % 2 === 0 ? DIRS.left : DIRS.right,
-      speed: 80,
+      speed: 115,
       color: ["#ff4b4b", "#49d6ff", "#ff8bd1"][idx % 3],
       frightened: 0,
       alive: true,
@@ -403,6 +429,9 @@ function startGame() {
     resetEntities();
     state.powerTimer = 0;
   }
+  state.ghostModeIndex = 0;
+  state.ghostModeTime = 0;
+  state.ghostMode = GHOST_MODE_SEQUENCE[0].mode;
   beginCountdown();
 }
 
@@ -463,7 +492,74 @@ function validDirections(tile, currentDir) {
   );
 }
 
-function chooseGhostDir(ghost) {
+function getGhostTarget(ghostIndex) {
+  if (state.ghostMode === "scatter") {
+    return SCATTER_TARGETS[ghostIndex % SCATTER_TARGETS.length];
+  }
+  const pacTile = getTileFromPos(pacman.x, pacman.y);
+  if (ghostIndex === 1) {
+    const ahead = pacman.dir.x || pacman.dir.y ? pacman.dir : DIRS.left;
+    const target = wrapTile(pacTile.r + ahead.y * 4, pacTile.c + ahead.x * 4);
+    return target;
+  }
+  if (ghostIndex === 2) {
+    const ghostTile = getTileFromPos(ghosts[ghostIndex].x, ghosts[ghostIndex].y);
+    const target = wrapTile(
+      pacTile.r + (pacTile.r - ghostTile.r),
+      pacTile.c + (pacTile.c - ghostTile.c)
+    );
+    return target;
+  }
+  return pacTile;
+}
+
+function findNextDir(startTile, targetTile, fallbackDir) {
+  if (startTile.r === targetTile.r && startTile.c === targetTile.c) {
+    return fallbackDir;
+  }
+
+  const total = ROWS * COLS;
+  const queue = [];
+  const visited = new Uint8Array(total);
+  const prevIndex = new Int32Array(total).fill(-1);
+  const prevDir = new Int8Array(total).fill(-1);
+
+  const startIndex = startTile.r * COLS + startTile.c;
+  const targetIndex = targetTile.r * COLS + targetTile.c;
+  queue.push(startIndex);
+  visited[startIndex] = 1;
+
+  const dirList = [DIRS.up, DIRS.left, DIRS.down, DIRS.right];
+  while (queue.length) {
+    const current = queue.shift();
+    if (current === targetIndex) break;
+    const r = Math.floor(current / COLS);
+    const c = current % COLS;
+
+    for (let i = 0; i < dirList.length; i += 1) {
+      const dir = dirList[i];
+      const next = wrapTile(r + dir.y, c + dir.x);
+      if (isWall(next.r, next.c)) continue;
+      const nextIndex = next.r * COLS + next.c;
+      if (visited[nextIndex]) continue;
+      visited[nextIndex] = 1;
+      prevIndex[nextIndex] = current;
+      prevDir[nextIndex] = i;
+      queue.push(nextIndex);
+    }
+  }
+
+  if (!visited[targetIndex]) return fallbackDir;
+  let current = targetIndex;
+  while (prevIndex[current] !== -1 && prevIndex[current] !== startIndex) {
+    current = prevIndex[current];
+  }
+  if (prevIndex[current] === -1) return fallbackDir;
+  const dirIdx = prevDir[current];
+  return dirList[dirIdx] || fallbackDir;
+}
+
+function chooseGhostDir(ghost, ghostIndex) {
   const tile = getTileFromPos(ghost.x, ghost.y);
   const options = validDirections(tile, ghost.dir);
   if (options.length === 0) return ghost.dir;
@@ -472,25 +568,23 @@ function chooseGhostDir(ghost) {
     return options[Math.floor(Math.random() * options.length)];
   }
 
-  let best = options[0];
-  let bestScore = Infinity;
-  options.forEach((dir) => {
-    const nextTile = { r: tile.r + dir.y, c: tile.c + dir.x };
-    const center = tileCenter(nextTile.r, nextTile.c);
-    const dx = center.x - pacman.x;
-    const dy = center.y - pacman.y;
-    const score = dx * dx + dy * dy;
-    if (score < bestScore) {
-      bestScore = score;
-      best = dir;
-    }
-  });
+  const target = getGhostTarget(ghostIndex);
+  return findNextDir(tile, target, ghost.dir);
+}
 
-  return best;
+function updateGhostMode(dt) {
+  state.ghostModeTime += dt;
+  const current = GHOST_MODE_SEQUENCE[state.ghostModeIndex];
+  if (state.ghostModeTime >= current.duration) {
+    state.ghostModeTime = 0;
+    state.ghostModeIndex =
+      (state.ghostModeIndex + 1) % GHOST_MODE_SEQUENCE.length;
+    state.ghostMode = GHOST_MODE_SEQUENCE[state.ghostModeIndex].mode;
+  }
 }
 
 function updateGhosts(dt) {
-  ghosts.forEach((ghost) => {
+  ghosts.forEach((ghost, idx) => {
     if (!ghost.alive) return;
     if (ghost.frightened > 0) {
       ghost.frightened = Math.max(0, ghost.frightened - dt);
@@ -498,13 +592,13 @@ function updateGhosts(dt) {
 
     const tile = getTileFromPos(ghost.x, ghost.y);
     if (isNearCenter(ghost)) {
-      ghost.dir = chooseGhostDir(ghost);
+      ghost.dir = chooseGhostDir(ghost, idx);
       if (!canMove(tile, ghost.dir)) {
         ghost.dir = reverseDir(ghost.dir);
       }
     }
 
-    const speed = ghost.frightened > 0 ? 60 : ghost.speed;
+    const speed = ghost.frightened > 0 ? ghost.speed * 0.75 : ghost.speed;
     ghost.x += ghost.dir.x * speed * dt;
     ghost.y += ghost.dir.y * speed * dt;
     handleTunnel(ghost);
@@ -613,6 +707,7 @@ function update(timestamp) {
       setMode("playing");
     }
   } else if (state.mode === "playing") {
+    updateGhostMode(dt);
     state.pelletShield = Math.max(0, state.pelletShield - dt);
     updatePacman(dt);
     updateGhosts(dt);
@@ -651,11 +746,15 @@ let touchStart = null;
 function onTouchStart(e) {
   if (!e.touches || e.touches.length === 0) return;
   const touch = e.touches[0];
-  touchStart = { x: touch.clientX, y: touch.clientY };
+  touchStart = { x: touch.clientX, y: touch.clientY, target: e.target };
 }
 
 function onTouchEnd(e) {
   if (!touchStart || !e.changedTouches || e.changedTouches.length === 0) return;
+  if (touchStart.target === audioBtn) {
+    touchStart = null;
+    return;
+  }
   const touch = e.changedTouches[0];
   const dx = touch.clientX - touchStart.x;
   const dy = touch.clientY - touchStart.y;
@@ -681,20 +780,22 @@ audioBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   unlockAudio();
 });
-if (gameWrap) {
-  gameWrap.addEventListener("click", () => {
-    if (isTouchDevice) handleStartAction();
-  });
-  gameWrap.addEventListener("touchstart", onTouchStart, { passive: false });
-  gameWrap.addEventListener("touchend", onTouchEnd, { passive: false });
-  gameWrap.addEventListener(
-    "touchmove",
-    (e) => {
+
+document.addEventListener("click", () => {
+  if (isTouchDevice) handleStartAction();
+});
+
+document.addEventListener("touchstart", onTouchStart, { passive: false });
+document.addEventListener("touchend", onTouchEnd, { passive: false });
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (isTouchDevice) {
       e.preventDefault();
-    },
-    { passive: false }
-  );
-}
+    }
+  },
+  { passive: false }
+);
 
 parseMap();
 resetEntities();
