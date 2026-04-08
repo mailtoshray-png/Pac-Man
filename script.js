@@ -76,10 +76,10 @@ const SCATTER_TARGETS = [
 ];
 
 const GHOST_MODE_SEQUENCE = [
-  { mode: "scatter", duration: 7 },
-  { mode: "chase", duration: 20 },
-  { mode: "scatter", duration: 7 },
-  { mode: "chase", duration: 20 },
+  { mode: "scatter", duration: 2 },
+  { mode: "chase", duration: 30 },
+  { mode: "scatter", duration: 2 },
+  { mode: "chase", duration: 30 },
 ];
 
 function unlockAudio() {
@@ -376,7 +376,7 @@ function resetEntities() {
       y: center.y,
       home: { x: center.x, y: center.y },
       dir: idx % 2 === 0 ? DIRS.left : DIRS.right,
-      speed: 115,
+      speed: 140,
       color: ["#ff4b4b", "#49d6ff", "#ff8bd1"][idx % 3],
       frightened: 0,
       alive: true,
@@ -598,7 +598,7 @@ function updateGhosts(dt) {
       }
     }
 
-    const speed = ghost.frightened > 0 ? ghost.speed * 0.75 : ghost.speed;
+    const speed = ghost.frightened > 0 ? ghost.speed * 0.9 : ghost.speed;
     ghost.x += ghost.dir.x * speed * dt;
     ghost.y += ghost.dir.y * speed * dt;
     handleTunnel(ghost);
