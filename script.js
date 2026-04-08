@@ -40,7 +40,7 @@ const DIRS = {
 
 const reverseDir = (dir) => ({ x: -dir.x, y: -dir.y });
 const PELLET_SCORE = 50;
-const POWER_DURATION = 8;
+const POWER_DURATION = 3;
 const PELLET_PICKUP_RADIUS = TILE * 0.6;
 const PELLET_SAFETY_RADIUS = TILE * 0.8;
 const PELLET_SHIELD_DURATION = 0.4;
